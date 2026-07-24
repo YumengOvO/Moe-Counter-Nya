@@ -64,18 +64,58 @@ test("GET /@demo keeps rendering the public SVG counter", async () => {
   assert.match(body, /<image id="9"/);
 });
 
-test("GET /record keeps auto-creating and incrementing during migration", async () => {
-  const name = `stage3-${process.pid}-${Date.now()}`;
+test("existing public SVG and JSON routes keep incrementing", async () => {
+  const name = uniqueName("s5-existing");
 
   try {
-    const first = await fetch(`${baseUrl}/record/@${name}`);
-    const second = await fetch(`${baseUrl}/record/@${name}`);
+    assert.equal(await counterService.create(name), true);
+
+    const first = await fetch(`${baseUrl}/@${name}?theme=moebooru`);
+    const second = await fetch(`${baseUrl}/get/@${name}?theme=moebooru`);
+    const third = await fetch(`${baseUrl}/record/@${name}`);
 
     assert.equal(first.status, 200);
-    assert.deepEqual(await first.json(), { name, num: 1 });
+    assert.match(first.headers.get("content-type"), /^image\/svg\+xml/);
     assert.equal(second.status, 200);
-    assert.deepEqual(await second.json(), { name, num: 2 });
+    assert.match(second.headers.get("content-type"), /^image\/svg\+xml/);
+    assert.equal(third.status, 200);
+    assert.deepEqual(await third.json(), { name, num: 3 });
   } finally {
     await counterService.delete(name);
   }
 });
+
+test("unknown public names return 404 without creating a counter", async () => {
+  const name = uniqueName("s5-missing");
+  const routes = [
+    `/@${name}`,
+    `/get/@${name}`,
+    `/record/@${name}`,
+  ];
+
+  assert.equal(await counterService.get(name), null);
+
+  for (const route of routes) {
+    const response = await fetch(`${baseUrl}${route}`);
+    assert.equal(response.status, 404);
+    assert.equal(await counterService.get(name), null);
+  }
+});
+
+test("temporary num rendering does not require or create a counter", async () => {
+  const name = uniqueName("s5-preview");
+  const response = await fetch(
+    `${baseUrl}/@${name}?theme=moebooru&num=42`,
+  );
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /^image\/svg\+xml/);
+  assert.match(body, /<image id="4"/);
+  assert.match(body, /<image id="2"/);
+  assert.equal(await counterService.get(name), null);
+});
+
+function uniqueName(prefix) {
+  return `${prefix}-${process.pid}-${Date.now().toString(36)}`;
+}

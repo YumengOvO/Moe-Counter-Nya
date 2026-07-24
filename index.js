@@ -77,7 +77,15 @@ app.get(["/@:name", "/get/@:name"],
       "cache-control": "max-age=0, no-cache, no-store, must-revalidate",
     });
 
-    const data = await getCountByName(String(name), Number(num));
+    let data;
+    try {
+      data = await getCountByName(String(name), Number(num));
+    } catch (error) {
+      logPublicCounterError(error);
+      return res.sendStatus(500);
+    }
+
+    if (!data) return res.sendStatus(404);
 
     if (name === "demo") {
       res.set("cache-control", "max-age=31536000");
@@ -110,9 +118,16 @@ app.get(["/@:name", "/get/@:name"],
 app.get("/record/@:name", async (req, res) => {
   const { name } = req.params;
 
-  const data = await getCountByName(name);
+  let data;
+  try {
+    data = await getCountByName(name);
+  } catch (error) {
+    logPublicCounterError(error);
+    return res.sendStatus(500);
+  }
 
-  res.json(data);
+  if (!data) return res.sendStatus(404);
+  return res.json(data);
 });
 
 app.get("/heart-beat", (req, res) => {
@@ -134,18 +149,18 @@ if (require.main === module) {
 }
 
 async function getCountByName(name, num) {
-  const defaultCount = { name, num: 0 };
-
   if (name === "demo") return { name, num: "0123456789" };
 
   if (num > 0) { return { name, num } };
 
-  try {
-    return await counterService.increment(name, { createIfMissing: true });
-  } catch (error) {
-    logger.error("get count by name is error: ", error);
-    return defaultCount;
-  }
+  return counterService.increment(name, { createIfMissing: false });
+}
+
+function logPublicCounterError(error) {
+  logger.error("Public counter request failed", {
+    name: error?.name,
+    code: error?.code,
+  });
 }
 
 module.exports = {
