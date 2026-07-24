@@ -27,6 +27,20 @@ const createCounterSchema = z.object({
   _csrf: z.string().min(1).max(256),
 });
 
+const existingCounterSchema = z.object({
+  name: z.string().min(1),
+  _csrf: z.string().min(1).max(256),
+});
+
+const counterValueSchema = z.string()
+  .regex(/^\d+$/)
+  .transform(Number)
+  .refine(Number.isSafeInteger);
+
+const setCounterSchema = existingCounterSchema.extend({
+  num: counterValueSchema,
+});
+
 function registerAdminRoutes(app, {
   config,
   counterService,
@@ -151,6 +165,89 @@ function registerAdminRoutes(app, {
     }),
   );
 
+  router.post(
+    "/counters/set",
+    requireAdminPage,
+    verifyCsrf,
+    asyncHandler(async (req, res) => {
+      const parsed = setCounterSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return renderAdmin(req, res, {
+          counterService,
+          publicSite,
+          status: 400,
+          error: "计数值必须是 JavaScript 安全范围内的非负整数",
+        });
+      }
+
+      const updated = await counterService.setNum(
+        parsed.data.name,
+        parsed.data.num,
+      );
+      if (!updated) {
+        return renderMissingCounter(req, res, {
+          counterService,
+          publicSite,
+          name: parsed.data.name,
+        });
+      }
+
+      req.session.notice = `计数器 “${parsed.data.name}” 已修改为 ${parsed.data.num}`;
+      return res.redirect(303, "/admin");
+    }),
+  );
+
+  router.post(
+    "/counters/reset",
+    requireAdminPage,
+    verifyCsrf,
+    asyncHandler(async (req, res) => {
+      const parsed = existingCounterSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).send("Bad Request");
+      }
+
+      const reset = await counterService.reset(parsed.data.name);
+      if (!reset) {
+        return renderMissingCounter(req, res, {
+          counterService,
+          publicSite,
+          name: parsed.data.name,
+        });
+      }
+
+      req.session.notice = `计数器 “${parsed.data.name}” 已清零`;
+      return res.redirect(303, "/admin");
+    }),
+  );
+
+  router.post(
+    "/counters/delete",
+    requireAdminPage,
+    verifyCsrf,
+    asyncHandler(async (req, res) => {
+      const parsed = existingCounterSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).send("Bad Request");
+      }
+
+      const deleted = await counterService.delete(parsed.data.name);
+      if (!deleted) {
+        return renderMissingCounter(req, res, {
+          counterService,
+          publicSite,
+          name: parsed.data.name,
+        });
+      }
+
+      req.session.notice = `计数器 “${parsed.data.name}” 已删除`;
+      return res.redirect(303, "/admin");
+    }),
+  );
+
   router.post("/logout", requireAdminPage, verifyCsrf, (req, res) => {
     req.session.destroy((error) => {
       if (error) return renderServerError(res, logger, error);
@@ -239,6 +336,19 @@ async function renderAdmin(req, res, {
     notice,
     error,
     inputName,
+  });
+}
+
+function renderMissingCounter(req, res, {
+  counterService,
+  publicSite,
+  name,
+}) {
+  return renderAdmin(req, res, {
+    counterService,
+    publicSite,
+    status: 404,
+    error: `计数器 “${name}” 不存在`,
   });
 }
 

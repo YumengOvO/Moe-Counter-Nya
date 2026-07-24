@@ -33,11 +33,46 @@ main {
 }
 
 .table-scroll table {
-  min-width: 42rem;
+  min-width: 64rem;
 }
 
-.copy-link {
+.set-counter,
+.counter-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.set-counter input {
+  margin: 0;
+  min-width: 10rem;
+  width: 12rem;
+}
+
+.set-counter button,
+.counter-actions button {
+  margin: 0;
   white-space: nowrap;
+}
+
+.counter-actions form {
+  margin: 0;
+}
+
+.danger {
+  border-width: 2px;
+  color: #a40000;
+  font-weight: 700;
+}
+
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 @media (max-width: 40rem) {

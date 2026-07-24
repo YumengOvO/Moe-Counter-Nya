@@ -20,3 +20,18 @@ document.addEventListener("click", async (event) => {
     button.disabled = false;
   }
 });
+
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest(".confirm-action");
+  if (!form) return;
+
+  const action = form.dataset.confirmAction;
+  const name = form.dataset.name;
+  const message = action === "delete"
+    ? `确定要删除计数器 “${name}” 吗？删除后公开链接将返回 404。`
+    : `确定要将计数器 “${name}” 清零吗？`;
+
+  if (!confirm(message)) {
+    event.preventDefault();
+  }
+});

@@ -145,26 +145,38 @@ test("successful login rotates the session and logout invalidates it", async () 
   assert.equal(afterLogout.headers.get("location"), "/admin/login");
 });
 
-test("unauthenticated or CSRF-less requests cannot create counters", async () => {
+test("unauthenticated or CSRF-less requests cannot manage counters", async () => {
   const name = uniqueName("s6-guard");
 
   try {
-    const unauthenticated = await request("/admin/counters", {
-      method: "POST",
-      body: form({ name, _csrf: "not-a-session-token" }),
-    });
-    assert.equal(unauthenticated.status, 302);
-    assert.equal(unauthenticated.headers.get("location"), "/admin/login");
-    assert.equal(await counterService.get(name), null);
-
+    assert.equal(await counterService.create(name, 7), true);
     const cookie = await loginAsAdmin();
-    const csrfLess = await request("/admin/counters", {
-      method: "POST",
-      cookie,
-      body: form({ name }),
-    });
-    assert.equal(csrfLess.status, 403);
-    assert.equal(await counterService.get(name), null);
+    const operations = [
+      { route: "/admin/counters", body: { name } },
+      { route: "/admin/counters/set", body: { name, num: "12" } },
+      { route: "/admin/counters/reset", body: { name } },
+      { route: "/admin/counters/delete", body: { name } },
+    ];
+
+    for (const operation of operations) {
+      const unauthenticated = await request(operation.route, {
+        method: "POST",
+        body: form({
+          ...operation.body,
+          _csrf: "not-a-session-token",
+        }),
+      });
+      assert.equal(unauthenticated.status, 302);
+      assert.equal(unauthenticated.headers.get("location"), "/admin/login");
+
+      const csrfLess = await request(operation.route, {
+        method: "POST",
+        cookie,
+        body: form(operation.body),
+      });
+      assert.equal(csrfLess.status, 403);
+      assert.deepEqual(await counterService.get(name), { name, num: 7 });
+    }
   } finally {
     await counterService.delete(name);
   }
@@ -269,8 +281,140 @@ test("historical names remain visible and are safely escaped", async () => {
     assert.match(body, new RegExp(`legacy &lt;${process.pid}&gt;`));
     assert.match(body, new RegExp(`legacy%20%3C${process.pid}%3E`));
     assert.doesNotMatch(body, new RegExp(`<${process.pid}>`));
+
+    const updated = await request("/admin/counters/set", {
+      method: "POST",
+      cookie,
+      body: form({
+        name: historicalName,
+        num: "9",
+        _csrf: extractCsrf(body),
+      }),
+    });
+    assert.equal(updated.status, 303);
+    assert.deepEqual(await counterService.get(historicalName), {
+      name: historicalName,
+      num: 9,
+    });
   } finally {
     await counterService.delete(historicalName);
+  }
+});
+
+test("administrator can modify, reset, delete, and recreate a counter", async () => {
+  const name = uniqueName("s7-manage");
+
+  try {
+    assert.equal(await counterService.create(name, 5), true);
+    const cookie = await loginAsAdmin();
+    const initialPage = await getAdminPage(cookie);
+    const csrfToken = extractCsrf(initialPage);
+
+    assert.match(initialPage, /action="\/admin\/counters\/set"/);
+    assert.match(initialPage, /action="\/admin\/counters\/reset"/);
+    assert.match(initialPage, /action="\/admin\/counters\/delete"/);
+    assert.match(initialPage, /class="danger"/);
+
+    const updated = await request("/admin/counters/set", {
+      method: "POST",
+      cookie,
+      body: form({
+        name,
+        num: String(Number.MAX_SAFE_INTEGER),
+        _csrf: csrfToken,
+      }),
+    });
+    assert.equal(updated.status, 303);
+    assert.deepEqual(await counterService.get(name), {
+      name,
+      num: Number.MAX_SAFE_INTEGER,
+    });
+
+    const updatedPage = await getAdminPage(cookie);
+    assert.match(
+      updatedPage,
+      new RegExp(`计数器 “${name}” 已修改为 ${Number.MAX_SAFE_INTEGER}`),
+    );
+
+    const reset = await request("/admin/counters/reset", {
+      method: "POST",
+      cookie,
+      body: form({ name, _csrf: csrfToken }),
+    });
+    assert.equal(reset.status, 303);
+    assert.deepEqual(await counterService.get(name), { name, num: 0 });
+
+    const deleted = await request("/admin/counters/delete", {
+      method: "POST",
+      cookie,
+      body: form({ name, _csrf: csrfToken }),
+    });
+    assert.equal(deleted.status, 303);
+    assert.equal(await counterService.get(name), null);
+
+    const publicResponse = await request(`/record/@${name}`);
+    assert.equal(publicResponse.status, 404);
+
+    const missingOperations = [
+      { route: "/admin/counters/set", body: { name, num: "12" } },
+      { route: "/admin/counters/reset", body: { name } },
+      { route: "/admin/counters/delete", body: { name } },
+    ];
+
+    for (const operation of missingOperations) {
+      const response = await request(operation.route, {
+        method: "POST",
+        cookie,
+        body: form({
+          ...operation.body,
+          _csrf: csrfToken,
+        }),
+      });
+      const body = await response.text();
+      assert.equal(response.status, 404);
+      assert.match(body, /不存在/);
+      assert.equal(await counterService.get(name), null);
+    }
+
+    const recreated = await request("/admin/counters", {
+      method: "POST",
+      cookie,
+      body: form({ name, _csrf: csrfToken }),
+    });
+    assert.equal(recreated.status, 303);
+    assert.deepEqual(await counterService.get(name), { name, num: 0 });
+  } finally {
+    await counterService.delete(name);
+  }
+});
+
+test("counter updates reject invalid values without changing stored data", async () => {
+  const name = uniqueName("s7-value");
+
+  try {
+    assert.equal(await counterService.create(name, 8), true);
+    const cookie = await loginAsAdmin();
+    const page = await getAdminPage(cookie);
+    const csrfToken = extractCsrf(page);
+    const invalidValues = [
+      "",
+      "-1",
+      "1.5",
+      "not-a-number",
+      String(Number.MAX_SAFE_INTEGER + 1),
+    ];
+
+    for (const num of invalidValues) {
+      const response = await request("/admin/counters/set", {
+        method: "POST",
+        cookie,
+        body: form({ name, num, _csrf: csrfToken }),
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await counterService.get(name), { name, num: 8 });
+    }
+  } finally {
+    await counterService.delete(name);
   }
 });
 

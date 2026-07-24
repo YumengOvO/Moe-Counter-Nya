@@ -46,19 +46,53 @@ html(lang="zh-CN")
                   th(scope="col") 公开链接
                   th(scope="col") 操作
               tbody
-                each counter in counters
+                each counter, index in counters
                   tr
                     td: code= counter.name
-                    td= counter.num
+                    td
+                      form.set-counter(method="post", action="/admin/counters/set")
+                        input(type="hidden", name="_csrf", value=csrfToken)
+                        input(type="hidden", name="name", value=counter.name)
+                        label.visually-hidden(for=`counter-value-${index}`)= `修改 ${counter.name} 的计数值`
+                        input(
+                          id=`counter-value-${index}`
+                          type="number"
+                          name="num"
+                          value=counter.num
+                          min="0"
+                          max="9007199254740991"
+                          step="1"
+                          required
+                        )
+                        button(type="submit") 修改
                     td
                       a(href=counter.publicUrl)= counter.publicUrl
                     td
-                      button.copy-link(
-                        type="button"
-                        data-link=counter.publicUrl
-                        data-name=counter.name
-                        aria-label=`复制 ${counter.name} 的公开链接`
-                      ) 复制链接
+                      .counter-actions
+                        button.copy-link(
+                          type="button"
+                          data-link=counter.publicUrl
+                          data-name=counter.name
+                          aria-label=`复制 ${counter.name} 的公开链接`
+                        ) 复制链接
+                        form.confirm-action(
+                          method="post"
+                          action="/admin/counters/reset"
+                          data-confirm-action="reset"
+                          data-name=counter.name
+                        )
+                          input(type="hidden", name="_csrf", value=csrfToken)
+                          input(type="hidden", name="name", value=counter.name)
+                          button(type="submit") 清零
+                        form.confirm-action(
+                          method="post"
+                          action="/admin/counters/delete"
+                          data-confirm-action="delete"
+                          data-name=counter.name
+                        )
+                          input(type="hidden", name="_csrf", value=csrfToken)
+                          input(type="hidden", name="name", value=counter.name)
+                          button.danger(type="submit") 删除
         else
           p 暂无计数器，请先创建一个 Name。
 

@@ -176,6 +176,42 @@ test("set and reset override dirty cached values consistently", async (t) => {
   assert.deepEqual(await db.getNum("counter"), { name: "counter", num: 0 });
 });
 
+test("management updates win over an in-flight stale flush", async (t) => {
+  const db = createMemoryAdapter([{ name: "counter", num: 5 }]);
+  const service = createService(db);
+  t.after(() => service.close());
+
+  await service.increment("counter");
+
+  const gate = db.blockNextFlush();
+  const flushing = service.flush();
+  await gate.started;
+
+  const updating = service.setNum("counter", 20);
+  gate.release();
+
+  await Promise.all([flushing, updating]);
+  await service.flush();
+
+  assert.deepEqual(await service.get("counter"), { name: "counter", num: 20 });
+  assert.deepEqual(await db.getNum("counter"), { name: "counter", num: 20 });
+
+  await service.increment("counter");
+
+  const resetGate = db.blockNextFlush();
+  const resetFlushing = service.flush();
+  await resetGate.started;
+
+  const resetting = service.reset("counter");
+  resetGate.release();
+
+  await Promise.all([resetFlushing, resetting]);
+  await service.flush();
+
+  assert.deepEqual(await service.get("counter"), { name: "counter", num: 0 });
+  assert.deepEqual(await db.getNum("counter"), { name: "counter", num: 0 });
+});
+
 test("delete wins over an in-flight flush and stale cache cannot revive a name", async (t) => {
   const db = createMemoryAdapter([{ name: "counter", num: 0 }]);
   const service = createService(db);
@@ -210,4 +246,15 @@ test("create and delete report conflicts and support clean recreation", async (t
   assert.equal(await service.delete("counter"), false);
   assert.equal(await service.create("counter"), true);
   assert.deepEqual(await service.get("counter"), { name: "counter", num: 0 });
+});
+
+test("management updates never create a missing counter", async (t) => {
+  const db = createMemoryAdapter();
+  const service = createService(db);
+  t.after(() => service.close());
+
+  assert.equal(await service.setNum("missing", 12), false);
+  assert.equal(await service.reset("missing"), false);
+  assert.equal(await service.delete("missing"), false);
+  assert.equal(await service.get("missing"), null);
 });
