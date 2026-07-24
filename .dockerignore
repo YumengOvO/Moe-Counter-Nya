@@ -1,1 +1,13 @@
+.git
+.github
+.pnpm-store
 node_modules
+coverage
+test
+data/*
+dev-logs
+docs
+AGENTS.md
+.env
+.env.*
+npm-debug.log*

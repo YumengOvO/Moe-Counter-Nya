@@ -1,11 +1,23 @@
-version: '3'
 services:
   moe-counter:
     build: .
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:${APP_PORT:-3000}"
     volumes:
       - ./data:/app/data
     environment:
-      - APP_PORT=3000
-      - DB_TYPE=sqlite
+      NODE_ENV: "${NODE_ENV:-production}"
+      APP_SITE: "${APP_SITE:-}"
+      APP_PORT: "${APP_PORT:-3000}"
+      DB_TYPE: "${DB_TYPE:-sqlite}"
+      DB_URL: "${DB_URL:-}"
+      DB_INTERVAL: "${DB_INTERVAL:-60}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      GA_ID: "${GA_ID:-}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
+      SESSION_SECRET: "${SESSION_SECRET:?Set SESSION_SECRET in .env}"
+      SESSION_DB_PATH: "${SESSION_DB_PATH:-/app/data/admin-sessions.db}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
