@@ -71,3 +71,16 @@ test("container build excludes local secrets and runs as a non-root user", () =>
   assert.match(dockerfile, /pnpm install --frozen-lockfile --prod/);
   assert.match(dockerfile, /^USER node$/m);
 });
+
+test("container installs locked production dependencies and starts Node directly", () => {
+  const dockerfile = readProjectFile("Dockerfile");
+  const packageMetadata = JSON.parse(readProjectFile("package.json"));
+
+  assert.match(
+    packageMetadata.packageManager,
+    /^pnpm@\d+\.\d+\.\d+\+sha512\./,
+  );
+  assert.match(dockerfile, /pnpm install --frozen-lockfile --prod/);
+  assert.match(dockerfile, /^CMD \["node", "index\.js"\]$/m);
+  assert.doesNotMatch(dockerfile, /^CMD \["pnpm", "start"\]$/m);
+});

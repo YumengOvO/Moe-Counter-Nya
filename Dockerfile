@@ -17,4 +17,4 @@ EXPOSE 3000
 
 USER node
 
-CMD ["pnpm", "start"]
+CMD ["node", "index.js"]
