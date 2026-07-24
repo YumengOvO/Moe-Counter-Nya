@@ -101,9 +101,17 @@ app.get("/heart-beat", (req, res) => {
   logger.debug("heart-beat");
 });
 
-const listener = app.listen(process.env.APP_PORT || 3000, () => {
-  logger.info("Your app is listening on port " + listener.address().port);
-});
+function startServer(port = process.env.APP_PORT || 3000) {
+  const listener = app.listen(port, () => {
+    logger.info("Your app is listening on port " + listener.address().port);
+  });
+
+  return listener;
+}
+
+if (require.main === module) {
+  startServer();
+}
 
 let __cache_counter = {};
 let enablePushDelay = process.env.DB_INTERVAL > 0
@@ -160,3 +168,8 @@ async function getCountByName(name, num) {
     return defaultCount;
   }
 }
+
+module.exports = {
+  app,
+  startServer,
+};
