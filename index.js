@@ -5,8 +5,13 @@ const express = require("express");
 const compression = require("compression");
 const { z } = require("zod");
 
+const { loadAdminConfig } = require("./config/admin");
+const adminConfig = loadAdminConfig();
+
 const db = require("./db");
+const { registerAdminRoutes } = require("./routes/admin");
 const { createCounterService } = require("./services/counter");
+const { SQLiteSessionStore } = require("./services/session-store");
 const { themeList, getCountImage } = require("./utils/themify");
 const { cors, ZodValid } = require("./utils/middleware");
 const { randomArray, logger } = require("./utils");
@@ -17,9 +22,18 @@ const counterService = createCounterService({
   intervalSeconds: process.env.DB_INTERVAL,
   logger,
 });
+const sessionStore = new SQLiteSessionStore({
+  filename: adminConfig.sessionDbPath,
+  defaultMaxAgeMs: adminConfig.sessionMaxAgeMs,
+});
 
 app.use(express.static("assets"));
 app.use(compression());
+registerAdminRoutes(app, {
+  config: adminConfig,
+  sessionStore,
+  logger,
+});
 app.use(cors());
 app.set("view engine", "pug");
 
@@ -138,4 +152,5 @@ module.exports = {
   app,
   startServer,
   counterService,
+  sessionStore,
 };

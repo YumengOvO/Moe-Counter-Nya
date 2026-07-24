@@ -1,0 +1,233 @@
+"use strict";
+
+const crypto = require("node:crypto");
+
+const express = require("express");
+const session = require("express-session");
+const { z } = require("zod");
+
+const SESSION_COOKIE_NAME = "moe_admin_session";
+const LOGIN_ERROR = "用户名或密码错误";
+const LOGIN_LIMIT = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+const loginSchema = z.object({
+  username: z.string().max(256),
+  password: z.string().max(1024),
+  _csrf: z.string().min(1).max(256),
+});
+
+function registerAdminRoutes(app, {
+  config,
+  sessionStore,
+  logger,
+  now = Date.now,
+}) {
+  app.set("trust proxy", config.trustProxy);
+
+  const router = express.Router();
+  const limiter = createLoginLimiter({ now });
+  const cookie = {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: config.secureCookie,
+    maxAge: config.sessionMaxAgeMs,
+    path: "/admin",
+  };
+
+  router.use(noStore);
+  router.use(express.urlencoded({ extended: false, limit: "16kb" }));
+  router.use(session({
+    name: SESSION_COOKIE_NAME,
+    secret: config.sessionSecret,
+    store: sessionStore,
+    resave: false,
+    saveUninitialized: false,
+    rolling: false,
+    cookie,
+  }));
+
+  router.get("/login", (req, res) => {
+    if (req.session.authenticated) return res.redirect("/admin");
+
+    return renderLogin(req, res);
+  });
+
+  router.post("/login", verifyCsrf, (req, res) => {
+    const source = req.ip;
+    const limitState = limiter.check(source);
+
+    if (limitState.limited) {
+      res.set("Retry-After", String(Math.ceil(limitState.retryAfterMs / 1000)));
+      return renderLogin(req, res, {
+        status: 429,
+        error: "登录尝试次数过多，请稍后重试",
+      });
+    }
+
+    const parsed = loginSchema.safeParse(req.body);
+    let validCredentials = false;
+
+    if (parsed.success) {
+      const usernameMatches = safeEqual(parsed.data.username, config.username);
+      const passwordMatches = safeEqual(parsed.data.password, config.password);
+      validCredentials = usernameMatches && passwordMatches;
+    }
+
+    if (!validCredentials) {
+      limiter.recordFailure(source);
+      return renderLogin(req, res, { status: 401, error: LOGIN_ERROR });
+    }
+
+    limiter.clear(source);
+    return req.session.regenerate((regenerateError) => {
+      if (regenerateError) return renderServerError(res, logger, regenerateError);
+
+      req.session.authenticated = true;
+      req.session.csrfToken = createToken();
+
+      return req.session.save((saveError) => {
+        if (saveError) return renderServerError(res, logger, saveError);
+        return res.redirect("/admin");
+      });
+    });
+  });
+
+  router.get("/", requireAdminPage, (req, res) => {
+    res.render("admin", {
+      csrfToken: getCsrfToken(req),
+    });
+  });
+
+  router.post("/logout", requireAdminPage, verifyCsrf, (req, res) => {
+    req.session.destroy((error) => {
+      if (error) return renderServerError(res, logger, error);
+
+      res.clearCookie(SESSION_COOKIE_NAME, {
+        httpOnly: cookie.httpOnly,
+        sameSite: cookie.sameSite,
+        secure: cookie.secure,
+        path: cookie.path,
+      });
+      return res.redirect("/admin/login");
+    });
+  });
+
+  router.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+
+    const status = Number.isInteger(error.status)
+      && error.status >= 400
+      && error.status < 500
+      ? error.status
+      : 500;
+
+    logger.error("Administrator request failed", {
+      name: error.name,
+      status,
+    });
+
+    return res.status(status).send(
+      status === 500 ? "Internal Server Error" : "Bad Request",
+    );
+  });
+
+  app.use("/admin", router);
+
+  return {
+    limiter,
+  };
+}
+
+function noStore(req, res, next) {
+  res.set("Cache-Control", "no-store");
+  next();
+}
+
+function requireAdminPage(req, res, next) {
+  if (!req.session.authenticated) return res.redirect("/admin/login");
+  return next();
+}
+
+function verifyCsrf(req, res, next) {
+  const expected = req.session.csrfToken;
+  const received = req.body?._csrf;
+
+  if (!expected || !received || !safeEqual(received, expected)) {
+    return res.status(403).send("Forbidden");
+  }
+
+  return next();
+}
+
+function renderLogin(req, res, { status = 200, error = null } = {}) {
+  return res.status(status).render("admin-login", {
+    csrfToken: getCsrfToken(req),
+    error,
+  });
+}
+
+function getCsrfToken(req) {
+  if (!req.session.csrfToken) req.session.csrfToken = createToken();
+  return req.session.csrfToken;
+}
+
+function createToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function safeEqual(actual, expected) {
+  const actualDigest = crypto.createHash("sha256").update(String(actual)).digest();
+  const expectedDigest = crypto.createHash("sha256").update(String(expected)).digest();
+  return crypto.timingSafeEqual(actualDigest, expectedDigest);
+}
+
+function createLoginLimiter({
+  limit = LOGIN_LIMIT,
+  windowMs = LOGIN_WINDOW_MS,
+  now = Date.now,
+} = {}) {
+  const failures = new Map();
+
+  function getCurrent(source) {
+    const current = failures.get(source);
+    if (!current || current.resetAt <= now()) {
+      failures.delete(source);
+      return null;
+    }
+    return current;
+  }
+
+  return {
+    check(source) {
+      const current = getCurrent(source);
+      return {
+        limited: Boolean(current && current.count >= limit),
+        retryAfterMs: current ? Math.max(0, current.resetAt - now()) : 0,
+      };
+    },
+    recordFailure(source) {
+      const current = getCurrent(source);
+      failures.set(source, current
+        ? { ...current, count: current.count + 1 }
+        : { count: 1, resetAt: now() + windowMs });
+    },
+    clear(source) {
+      failures.delete(source);
+    },
+  };
+}
+
+function renderServerError(res, logger, error) {
+  logger.error("Administrator session operation failed", {
+    name: error.name,
+    code: error.code,
+  });
+  return res.status(500).send("Internal Server Error");
+}
+
+module.exports = {
+  createLoginLimiter,
+  registerAdminRoutes,
+  safeEqual,
+};

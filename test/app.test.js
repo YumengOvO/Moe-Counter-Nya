@@ -1,9 +1,20 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const os = require("node:os");
+const path = require("node:path");
 const { after, before, test } = require("node:test");
 
-const { app, counterService } = require("../index");
+process.env.ADMIN_USERNAME = "test-admin";
+process.env.ADMIN_PASSWORD = "test-password";
+process.env.SESSION_SECRET = "test-only-session-secret-32-characters";
+process.env.SESSION_DB_PATH = path.join(
+  os.tmpdir(),
+  `moe-counter-app-sessions-${process.pid}.db`,
+);
+process.env.NODE_ENV = "test";
+
+const { app, counterService, sessionStore } = require("../index");
 
 let listener;
 let baseUrl;
@@ -31,6 +42,7 @@ after(async () => {
   }
 
   await counterService.close();
+  sessionStore.close();
 });
 
 test("GET /heart-beat reports the service as alive", async () => {

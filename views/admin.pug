@@ -1,0 +1,16 @@
+doctype html
+html(lang="zh-CN")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1")
+    title 管理端
+    link(rel="stylesheet", href="https://cdn.jsdelivr.net/npm/bamboo.css")
+  body
+    main
+      h1 管理端
+      p 已安全登录。计数器管理功能将在后续阶段加入。
+      form(method="post", action="/admin/logout")
+        input(type="hidden", name="_csrf", value=csrfToken)
+        button(type="submit") 退出登录
+      p
+        a(href="/") 返回公开首页

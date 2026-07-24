@@ -1,0 +1,21 @@
+doctype html
+html(lang="zh-CN")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1")
+    title 管理员登录
+    link(rel="stylesheet", href="https://cdn.jsdelivr.net/npm/bamboo.css")
+  body
+    main
+      h1 管理员登录
+      if error
+        p(role="alert")= error
+      form(method="post", action="/admin/login")
+        input(type="hidden", name="_csrf", value=csrfToken)
+        label(for="username") 用户名
+        input#username(type="text", name="username", autocomplete="username", required, autofocus)
+        label(for="password") 密码
+        input#password(type="password", name="password", autocomplete="current-password", required)
+        button(type="submit") 登录
+      p
+        a(href="/") 返回公开首页
