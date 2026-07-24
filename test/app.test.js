@@ -53,6 +53,41 @@ test("GET /heart-beat reports the service as alive", async () => {
   assert.match(response.headers.get("cache-control"), /no-cache/);
 });
 
+test("GET / keeps only the safe usage guide and current source link", async () => {
+  const response = await fetch(`${baseUrl}/`);
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /Moe Counter!/);
+  assert.match(body, /How to use/);
+  assert.match(body, /SVG address/);
+  assert.match(body, /Img tag/);
+  assert.match(body, /Markdown/);
+  assert.match(body, /YumengOvO\/Moe-Counter-Nya/);
+  assert.match(
+    body,
+    /href="https:\/\/github\.com\/YumengOvO\/Moe-Counter-Nya"/,
+  );
+
+  for (const removedContent of [
+    "More theme",
+    "Credits",
+    "gelbooru.com",
+    "A-SOUL",
+    "<h3>Tool</h3>",
+    "Unusual Options",
+    "Generate",
+    "/@index",
+    "journey-ad/Moe-Counter",
+    "party-js",
+    "/script.js",
+  ]) {
+    assert.doesNotMatch(body, new RegExp(escapeRegExp(removedContent)));
+  }
+
+  assert.doesNotMatch(body, /<img\b/);
+});
+
 test("GET /@demo keeps rendering the public SVG counter", async () => {
   const response = await fetch(`${baseUrl}/@demo?theme=moebooru`);
   const body = await response.text();
@@ -118,4 +153,8 @@ test("temporary num rendering does not require or create a counter", async () =>
 
 function uniqueName(prefix) {
   return `${prefix}-${process.pid}-${Date.now().toString(36)}`;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
