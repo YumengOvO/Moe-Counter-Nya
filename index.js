@@ -31,8 +31,10 @@ app.use(express.static("assets"));
 app.use(compression());
 registerAdminRoutes(app, {
   config: adminConfig,
+  counterService,
   sessionStore,
   logger,
+  publicSite: process.env.APP_SITE,
 });
 app.use(cors());
 app.set("view engine", "pug");

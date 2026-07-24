@@ -17,10 +17,22 @@ const loginSchema = z.object({
   _csrf: z.string().min(1).max(256),
 });
 
+const counterNameSchema = z.string()
+  .min(1)
+  .max(32)
+  .regex(/^[A-Za-z0-9._-]+$/);
+
+const createCounterSchema = z.object({
+  name: counterNameSchema,
+  _csrf: z.string().min(1).max(256),
+});
+
 function registerAdminRoutes(app, {
   config,
+  counterService,
   sessionStore,
   logger,
+  publicSite,
   now = Date.now,
 }) {
   app.set("trust proxy", config.trustProxy);
@@ -93,11 +105,51 @@ function registerAdminRoutes(app, {
     });
   });
 
-  router.get("/", requireAdminPage, (req, res) => {
-    res.render("admin", {
-      csrfToken: getCsrfToken(req),
+  router.get("/", requireAdminPage, asyncHandler(async (req, res) => {
+    const notice = req.session.notice || null;
+    delete req.session.notice;
+
+    return renderAdmin(req, res, {
+      counterService,
+      publicSite,
+      notice,
     });
-  });
+  }));
+
+  router.post(
+    "/counters",
+    requireAdminPage,
+    verifyCsrf,
+    asyncHandler(async (req, res) => {
+      const parsed = createCounterSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return renderAdmin(req, res, {
+          counterService,
+          publicSite,
+          status: 400,
+          error: "Name 必须为 1–32 个字符，且只能包含 ASCII 字母、数字、-、_ 和 .",
+          inputName: typeof req.body.name === "string"
+            ? req.body.name.slice(0, 256)
+            : "",
+        });
+      }
+
+      const created = await counterService.create(parsed.data.name, 0);
+      if (!created) {
+        return renderAdmin(req, res, {
+          counterService,
+          publicSite,
+          status: 409,
+          error: `Name “${parsed.data.name}” 已存在`,
+          inputName: parsed.data.name,
+        });
+      }
+
+      req.session.notice = `计数器 “${parsed.data.name}” 已创建`;
+      return res.redirect(303, "/admin");
+    }),
+  );
 
   router.post("/logout", requireAdminPage, verifyCsrf, (req, res) => {
     req.session.destroy((error) => {
@@ -123,7 +175,7 @@ function registerAdminRoutes(app, {
       : 500;
 
     logger.error("Administrator request failed", {
-      name: error.name,
+      name: error?.name,
       status,
     });
 
@@ -167,9 +219,43 @@ function renderLogin(req, res, { status = 200, error = null } = {}) {
   });
 }
 
+async function renderAdmin(req, res, {
+  counterService,
+  publicSite,
+  status = 200,
+  notice = null,
+  error = null,
+  inputName = "",
+}) {
+  const site = getPublicSite(req, publicSite);
+  const counters = (await counterService.getAll()).map((counter) => ({
+    ...counter,
+    publicUrl: `${site}/@${encodeURIComponent(counter.name)}`,
+  }));
+
+  return res.status(status).render("admin", {
+    csrfToken: getCsrfToken(req),
+    counters,
+    notice,
+    error,
+    inputName,
+  });
+}
+
+function getPublicSite(req, configuredSite) {
+  return (configuredSite || `${req.protocol}://${req.get("host")}`)
+    .replace(/\/+$/, "");
+}
+
 function getCsrfToken(req) {
   if (!req.session.csrfToken) req.session.csrfToken = createToken();
   return req.session.csrfToken;
+}
+
+function asyncHandler(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
 }
 
 function createToken() {

@@ -145,6 +145,135 @@ test("successful login rotates the session and logout invalidates it", async () 
   assert.equal(afterLogout.headers.get("location"), "/admin/login");
 });
 
+test("unauthenticated or CSRF-less requests cannot create counters", async () => {
+  const name = uniqueName("s6-guard");
+
+  try {
+    const unauthenticated = await request("/admin/counters", {
+      method: "POST",
+      body: form({ name, _csrf: "not-a-session-token" }),
+    });
+    assert.equal(unauthenticated.status, 302);
+    assert.equal(unauthenticated.headers.get("location"), "/admin/login");
+    assert.equal(await counterService.get(name), null);
+
+    const cookie = await loginAsAdmin();
+    const csrfLess = await request("/admin/counters", {
+      method: "POST",
+      cookie,
+      body: form({ name }),
+    });
+    assert.equal(csrfLess.status, 403);
+    assert.equal(await counterService.get(name), null);
+  } finally {
+    await counterService.delete(name);
+  }
+});
+
+test("administrator can create, list, and activate a public counter", async () => {
+  const name = uniqueName("s6-create");
+
+  try {
+    const cookie = await loginAsAdmin();
+    const initialPage = await getAdminPage(cookie);
+    const created = await request("/admin/counters", {
+      method: "POST",
+      cookie,
+      body: form({ name, _csrf: extractCsrf(initialPage) }),
+    });
+
+    assert.equal(created.status, 303);
+    assert.equal(created.headers.get("location"), "/admin");
+    assert.deepEqual(await counterService.get(name), { name, num: 0 });
+
+    const listedPage = await getAdminPage(cookie);
+    assert.match(listedPage, new RegExp(`计数器 “${name}” 已创建`));
+    assert.match(listedPage, new RegExp(`http://127\\.0\\.0\\.1:\\d+/@${name}`));
+    assert.match(listedPage, /class="copy-link"/);
+    assert.match(listedPage, /src="\/admin\.js"/);
+
+    const publicResponse = await request(`/record/@${name}`);
+    assert.equal(publicResponse.status, 200);
+    assert.deepEqual(await publicResponse.json(), { name, num: 1 });
+
+    const duplicate = await request("/admin/counters", {
+      method: "POST",
+      cookie,
+      body: form({ name, _csrf: extractCsrf(listedPage) }),
+    });
+    const duplicateBody = await duplicate.text();
+    assert.equal(duplicate.status, 409);
+    assert.match(duplicateBody, /已存在/);
+  } finally {
+    await counterService.delete(name);
+  }
+});
+
+test("new counter names are validated and remain case-sensitive", async () => {
+  const cookie = await loginAsAdmin();
+  const page = await getAdminPage(cookie);
+  const csrfToken = extractCsrf(page);
+  const invalidNames = [
+    "",
+    "contains space",
+    "日本語",
+    "slash/name",
+    "x".repeat(33),
+  ];
+
+  for (const name of invalidNames) {
+    const response = await request("/admin/counters", {
+      method: "POST",
+      cookie,
+      body: form({ name, _csrf: csrfToken }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(await counterService.get(name), null);
+  }
+
+  const upperName = uniqueName("S6-Case");
+  const lowerName = upperName.toLowerCase();
+
+  try {
+    for (const name of [upperName, lowerName]) {
+      const response = await request("/admin/counters", {
+        method: "POST",
+        cookie,
+        body: form({ name, _csrf: csrfToken }),
+      });
+      assert.equal(response.status, 303);
+    }
+
+    assert.deepEqual(await counterService.get(upperName), {
+      name: upperName,
+      num: 0,
+    });
+    assert.deepEqual(await counterService.get(lowerName), {
+      name: lowerName,
+      num: 0,
+    });
+  } finally {
+    await counterService.delete(upperName);
+    await counterService.delete(lowerName);
+  }
+});
+
+test("historical names remain visible and are safely escaped", async () => {
+  const historicalName = `legacy <${process.pid}>`;
+
+  try {
+    assert.equal(await counterService.create(historicalName, 7), true);
+    const cookie = await loginAsAdmin();
+    const body = await getAdminPage(cookie);
+
+    assert.match(body, new RegExp(`legacy &lt;${process.pid}&gt;`));
+    assert.match(body, new RegExp(`legacy%20%3C${process.pid}%3E`));
+    assert.doesNotMatch(body, new RegExp(`<${process.pid}>`));
+  } finally {
+    await counterService.delete(historicalName);
+  }
+});
+
 test("expired server sessions cannot access the administration page", async () => {
   const loginPage = await getLoginSession();
   const loginResponse = await submitLogin(loginPage, {
@@ -208,6 +337,24 @@ function submitLogin(loginPage, credentials) {
   });
 }
 
+async function loginAsAdmin() {
+  const loginPage = await getLoginSession();
+  const response = await submitLogin(loginPage, {
+    username: process.env.ADMIN_USERNAME,
+    password: process.env.ADMIN_PASSWORD,
+  });
+
+  assert.equal(response.status, 302);
+  return getCookie(response);
+}
+
+async function getAdminPage(cookie) {
+  const response = await request("/admin", { cookie });
+  const body = await response.text();
+  assert.equal(response.status, 200);
+  return body;
+}
+
 function request(route, {
   method = "GET",
   cookie,
@@ -259,4 +406,8 @@ function setSession(sid, data) {
   return new Promise((resolve, reject) => {
     sessionStore.set(sid, data, (error) => error ? reject(error) : resolve());
   });
+}
+
+function uniqueName(prefix) {
+  return `${prefix}-${process.pid}-${Date.now().toString(36)}`;
 }

@@ -1,0 +1,47 @@
+main {
+  max-width: 72rem;
+}
+
+.create-counter {
+  align-items: end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+}
+
+.create-counter label {
+  grid-column: 1 / -1;
+}
+
+.create-counter input,
+.create-counter button {
+  margin: 0;
+}
+
+.hint {
+  font-size: 0.9rem;
+}
+
+.notice,
+.error,
+#copy-feedback {
+  min-height: 1.5em;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-scroll table {
+  min-width: 42rem;
+}
+
+.copy-link {
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .create-counter {
+    grid-template-columns: 1fr;
+  }
+}

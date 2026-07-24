@@ -5,10 +5,63 @@ html(lang="zh-CN")
     meta(name="viewport", content="width=device-width, initial-scale=1")
     title 管理端
     link(rel="stylesheet", href="https://cdn.jsdelivr.net/npm/bamboo.css")
+    link(rel="stylesheet", href="/admin.css")
+    script(defer, src="/admin.js")
   body
     main
       h1 管理端
-      p 已安全登录。计数器管理功能将在后续阶段加入。
+      if notice
+        p.notice(role="status")= notice
+      if error
+        p.error(role="alert")= error
+
+      section(aria-labelledby="create-counter-heading")
+        h2#create-counter-heading 创建计数器
+        form.create-counter(method="post", action="/admin/counters")
+          input(type="hidden", name="_csrf", value=csrfToken)
+          label(for="counter-name") Name
+          input#counter-name(
+            type="text"
+            name="name"
+            value=inputName
+            minlength="1"
+            maxlength="32"
+            pattern="[A-Za-z0-9._-]{1,32}"
+            autocomplete="off"
+            required
+          )
+          button(type="submit") 创建
+        p.hint 允许 1–32 个 ASCII 字母、数字、连字符、下划线或点号。
+
+      section(aria-labelledby="counter-list-heading")
+        h2#counter-list-heading 计数器列表
+        p#copy-feedback(role="status", aria-live="polite")
+        if counters.length
+          .table-scroll
+            table
+              thead
+                tr
+                  th(scope="col") Name
+                  th(scope="col") 当前计数
+                  th(scope="col") 公开链接
+                  th(scope="col") 操作
+              tbody
+                each counter in counters
+                  tr
+                    td: code= counter.name
+                    td= counter.num
+                    td
+                      a(href=counter.publicUrl)= counter.publicUrl
+                    td
+                      button.copy-link(
+                        type="button"
+                        data-link=counter.publicUrl
+                        data-name=counter.name
+                        aria-label=`复制 ${counter.name} 的公开链接`
+                      ) 复制链接
+        else
+          p 暂无计数器，请先创建一个 Name。
+
       form(method="post", action="/admin/logout")
         input(type="hidden", name="_csrf", value=csrfToken)
         button(type="submit") 退出登录
