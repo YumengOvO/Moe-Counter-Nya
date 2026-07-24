@@ -24,3 +24,8 @@
 .env.production.local
 
 npm-debug.log*
+
+# Local development governance and working notes
+/AGENTS.md
+/docs/
+/dev-logs/
