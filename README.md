@@ -27,60 +27,120 @@ Moe-Counter-Nya 可以生成适合嵌入 Markdown、博客和个人主页的 SVG
 - **一致性保护**：处理并发递增、延迟写入、后台修改及删除之间的缓存一致性。
 - **双数据库支持**：计数数据可使用 SQLite 或 MongoDB，二者遵循统一适配器语义。
 - **生产部署支持**：Docker、Docker Compose、非 root 容器、HTTPS 反向代理和持久化数据卷。
-- **自动化测试**：当前测试集包含 41 项测试，覆盖鉴权、管理操作、公开接口、缓存、数据适配器及部署配置。
+- **自动化测试**：当前测试集包含 43 项测试，覆盖鉴权、管理操作、公开接口、缓存、数据适配器及部署配置。
 
 ## 快速部署
 
+`ghcr.io/yumengovo/moe-counter-nya:latest` 已公开，可由任何人直接拉取，无需登录 GHCR 或克隆源码。以下两个文件应放在同一个部署目录中。
+
 ### 环境要求
 
-- Git
 - Docker Engine 或 Docker Desktop
 - Docker Compose v2
+- 生产环境还需要 HTTPS 域名和反向代理
 
-### 1. 获取项目
+### 1. 创建部署目录
 
 Linux、macOS：
 
 ```bash
-git clone https://github.com/YumengOvO/Moe-Counter-Nya.git
-cd Moe-Counter-Nya
-cp .env.example .env
+mkdir moe-counter-nya
+cd moe-counter-nya
 ```
 
 Windows PowerShell：
 
 ```powershell
-git clone https://github.com/YumengOvO/Moe-Counter-Nya.git
+New-Item -ItemType Directory -Path Moe-Counter-Nya
 Set-Location Moe-Counter-Nya
-Copy-Item .env.example .env
 ```
 
-### 2. 设置管理员与站点配置
+### 2. 准备两个部署文件
 
-编辑 `.env`，至少替换以下内容：
+#### 文件 1/2：`.env`
+
+复制以下完整模板，并替换管理员用户名、密码和 Session Secret：
 
 ```dotenv
+# 必填：单管理员登录凭据。请替换全部占位值。
 ADMIN_USERNAME=replace-with-admin-username
 ADMIN_PASSWORD=replace-with-a-long-random-password
+# 必填：至少 32 个字符，且必须与 ADMIN_PASSWORD 不同。
 SESSION_SECRET=replace-with-at-least-32-random-characters
 
+# 生产运行模式；默认启用 Secure Session Cookie。
 NODE_ENV=production
+
+# 对外公开地址，用于生成计数器链接；不要以 / 结尾。
 APP_SITE=https://count.yumengovo.com
+
+# 应用监听端口和宿主机映射端口。
 APP_PORT=3000
+
+# 计数数据库：sqlite 或 mongodb。
 DB_TYPE=sqlite
+
+# MongoDB 专用连接串，使用 SQLite 时保持注释。
+# Compose 网络内应填写 MongoDB 服务名，并显式指定数据库名。
+# DB_URL=mongodb://mongo:27017/moe-counter
+
+# 计数缓存写入数据库的间隔，单位为秒；0 表示即时安排刷新。
+DB_INTERVAL=60
+
+# 管理员 Session 的 SQLite 文件；容器工作目录为 /app。
 SESSION_DB_PATH=data/admin-sessions.db
+
+# 生产 HTTPS 必须为 true；仅本地纯 HTTP 调试时设为 false。
 SESSION_COOKIE_SECURE=true
+
+# 可信反向代理范围。1 仅适用于应用前方恰好一层可信代理。
+# 应用直接暴露时改为 false；不要使用 true。
 TRUST_PROXY=1
+
+# 日志级别：debug、info、warn、error 或 none。
+LOG_LEVEL=info
+
+# 可选 Google Analytics G-Tag ID，不使用时保持注释。
+# GA_ID=G-XXXX
 ```
 
-`ADMIN_PASSWORD` 与 `SESSION_SECRET` 必须是不同的秘密。不要将真实值写入 Compose、源码、日志、URL 或 Git。
+不要将真实密码或 Secret 写入 Compose、源码、日志、URL 或 Git。
 
-上例中的 `TRUST_PROXY=1` 只适用于应用前方恰好有一层可信反向代理，且应用端口不直接暴露到公网的部署方式。如果应用直接对外提供 HTTP 服务，应保持 `TRUST_PROXY=false`。
+#### 文件 2/2：`docker-compose.yml`
+
+该 Compose 直接使用公开 GHCR 镜像，并把 SQLite 计数和管理员 Session 持久化到当前目录的 `data/`：
+
+```yaml
+services:
+  moe-counter:
+    image: ghcr.io/yumengovo/moe-counter-nya:latest
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:${APP_PORT:-3000}"
+    volumes:
+      - ./data:/app/data
+    environment:
+      NODE_ENV: "${NODE_ENV:-production}"
+      APP_SITE: "${APP_SITE:-}"
+      APP_PORT: "${APP_PORT:-3000}"
+      DB_TYPE: "${DB_TYPE:-sqlite}"
+      DB_URL: "${DB_URL:-}"
+      DB_INTERVAL: "${DB_INTERVAL:-60}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      GA_ID: "${GA_ID:-}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
+      SESSION_SECRET: "${SESSION_SECRET:?Set SESSION_SECRET in .env}"
+      SESSION_DB_PATH: "${SESSION_DB_PATH:-/app/data/admin-sessions.db}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+```
 
 ### 3. 一条命令启动
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 检查容器状态：
@@ -105,7 +165,7 @@ curl https://count.yumengovo.com/heart-beat
 
 ### 本地 HTTP 调试
 
-如果只在本机通过 `http://localhost:3000` 测试，请改用：
+如果只在本机通过 `http://localhost:3000` 测试，请在 `.env` 中改用：
 
 ```dotenv
 NODE_ENV=development
@@ -212,10 +272,11 @@ https://count.yumengovo.com/@my-homepage?theme=rule34&padding=7&align=center&sca
 
 ### Docker Compose
 
-仓库内的 `docker-compose.yml` 默认从当前源码构建镜像，并将 `./data` 挂载到容器的 `/app/data`：
+推荐直接复制[快速部署](#快速部署)中的 `.env` 与 `docker-compose.yml`，使用公开镜像启动：
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 停止服务：
@@ -224,26 +285,32 @@ docker compose up -d --build
 docker compose down
 ```
 
-更新代码后重新构建：
+更新到最新公开镜像：
 
 ```bash
-git pull --ff-only
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 `docker compose down` 不会删除宿主机的 `./data`。不要在未备份的情况下手动删除该目录。
 
+仓库自带的 `docker-compose.yml` 仍使用 `build: .`，适合需要修改源码并自行构建镜像的开发者。
+
 ### GitHub Container Registry
 
-GitHub Actions 会根据当前仓库名构建：
+GitHub Actions 已发布公开镜像：
 
 ```text
 ghcr.io/yumengovo/moe-counter-nya:latest
 ```
 
-GHCR 包的公开可见性由 GitHub Packages 设置控制。如果包已设为 Public，可直接使用；私有包必须先通过具备 `read:packages` 权限的 Token 登录 GHCR。
+该镜像当前为 Public，任何人都可以匿名拉取，无需 `docker login`：
 
-包可用时，可以运行：
+```bash
+docker pull ghcr.io/yumengovo/moe-counter-nya:latest
+```
+
+也可以不使用 Compose，直接运行：
 
 ```bash
 docker run -d \
@@ -255,7 +322,7 @@ docker run -d \
   ghcr.io/yumengovo/moe-counter-nya:latest
 ```
 
-在确认 GHCR 包可匿名拉取前，推荐使用仓库自带的 Docker Compose 源码构建方式。
+当前镜像发布平台为 `linux/amd64`。
 
 ### 数据目录权限
 
