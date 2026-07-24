@@ -376,6 +376,23 @@ Moe-Counter-Nya/
 └─ index.js                # Express 应用装配与公开路由
 ```
 
+## 项目文档
+
+完整文档已发布到 [GitHub Wiki](https://github.com/YumengOvO/Moe-Counter-Nya/wiki)：
+
+- [快速部署指南](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/快速部署指南)
+- [功能特性](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/功能特性)
+- [管理员使用指南](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/管理员使用指南)
+- [API 参考](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/API-参考)
+- [主题与显示参数](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/主题与显示参数)
+- [架构与项目结构](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/架构与项目结构)
+- [配置参考](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/配置参考)
+- [反向代理与安全](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/反向代理与安全)
+- [数据管理与备份](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/数据管理与备份)
+- [升级与迁移](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/升级与迁移)
+- [开发与测试](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/开发与测试)
+- [故障排查](https://github.com/YumengOvO/Moe-Counter-Nya/wiki/故障排查)
+
 ## 开发与测试
 
 安装依赖：
