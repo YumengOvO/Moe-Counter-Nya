@@ -6,11 +6,17 @@ const compression = require("compression");
 const { z } = require("zod");
 
 const db = require("./db");
+const { createCounterService } = require("./services/counter");
 const { themeList, getCountImage } = require("./utils/themify");
 const { cors, ZodValid } = require("./utils/middleware");
 const { randomArray, logger } = require("./utils");
 
 const app = express();
+const counterService = createCounterService({
+  db,
+  intervalSeconds: process.env.DB_INTERVAL,
+  logger,
+});
 
 app.use(express.static("assets"));
 app.use(compression());
@@ -113,38 +119,6 @@ if (require.main === module) {
   startServer();
 }
 
-let __cache_counter = {};
-let enablePushDelay = process.env.DB_INTERVAL > 0
-let needPush = false;
-
-if (enablePushDelay) {
-  setInterval(() => {
-    needPush = true;
-  }, 1000 * process.env.DB_INTERVAL);
-}
-
-async function pushDB() {
-  if (Object.keys(__cache_counter).length === 0) return;
-  if (enablePushDelay && !needPush) return;
-
-  try {
-    needPush = false;
-    logger.info("pushDB", __cache_counter);
-
-    const counters = Object.keys(__cache_counter).map((key) => {
-      return {
-        name: key,
-        num: __cache_counter[key],
-      };
-    });
-
-    await db.setNumMulti(counters);
-    __cache_counter = {};
-  } catch (error) {
-    logger.error("pushDB is error: ", error);
-  }
-}
-
 async function getCountByName(name, num) {
   const defaultCount = { name, num: 0 };
 
@@ -153,16 +127,7 @@ async function getCountByName(name, num) {
   if (num > 0) { return { name, num } };
 
   try {
-    if (!(name in __cache_counter)) {
-      const counter = (await db.getNum(name)) || defaultCount;
-      __cache_counter[name] = counter.num + 1;
-    } else {
-      __cache_counter[name]++;
-    }
-
-    pushDB();
-
-    return { name, num: __cache_counter[name] };
+    return await counterService.increment(name, { createIfMissing: true });
   } catch (error) {
     logger.error("get count by name is error: ", error);
     return defaultCount;
@@ -172,4 +137,5 @@ async function getCountByName(name, num) {
 module.exports = {
   app,
   startServer,
+  counterService,
 };

@@ -32,8 +32,7 @@ function createMongoAdapter(Count) {
     const bulkOps = counters.map(({ name, num }) => ({
       updateOne: {
         filter: { name },
-        update: { name, num },
-        upsert: true,
+        update: { $set: { num } },
       },
     }))
 

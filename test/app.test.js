@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 
-const { app } = require("../index");
+const { app, counterService } = require("../index");
 
 let listener;
 let baseUrl;
@@ -21,14 +21,16 @@ before(async () => {
 });
 
 after(async () => {
-  if (!listener) return;
-
-  await new Promise((resolve, reject) => {
-    listener.close((error) => {
-      if (error) reject(error);
-      else resolve();
+  if (listener) {
+    await new Promise((resolve, reject) => {
+      listener.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
     });
-  });
+  }
+
+  await counterService.close();
 });
 
 test("GET /heart-beat reports the service as alive", async () => {
@@ -48,4 +50,20 @@ test("GET /@demo keeps rendering the public SVG counter", async () => {
   assert.match(body, /^<\?xml\b/);
   assert.match(body, /<svg\b/);
   assert.match(body, /<image id="9"/);
+});
+
+test("GET /record keeps auto-creating and incrementing during migration", async () => {
+  const name = `stage3-${process.pid}-${Date.now()}`;
+
+  try {
+    const first = await fetch(`${baseUrl}/record/@${name}`);
+    const second = await fetch(`${baseUrl}/record/@${name}`);
+
+    assert.equal(first.status, 200);
+    assert.deepEqual(await first.json(), { name, num: 1 });
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), { name, num: 2 });
+  } finally {
+    await counterService.delete(name);
+  }
 });

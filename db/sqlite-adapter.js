@@ -46,10 +46,9 @@ function createSQLiteAdapter(filename) {
   }
 
   async function setNumMulti(counters) {
-    const stmt = database.prepare(`INSERT INTO tb_count(\`name\`, \`num\`)
-      VALUES($name, $num)
-      ON CONFLICT(name) DO
-      UPDATE SET \`num\` = $num;`)
+    const stmt = database.prepare(`UPDATE tb_count
+      SET \`num\` = $num
+      WHERE \`name\` = $name;`)
 
     const setMany = database.transaction((items) => {
       for (const counter of items) stmt.run(counter)

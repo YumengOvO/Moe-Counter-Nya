@@ -31,8 +31,12 @@ async function assertAdapterContract(adapter) {
   assert.equal(await adapter.delete("alpha"), true);
   assert.equal(await adapter.getNum("alpha"), null);
 
-  await adapter.setNumMulti([{ name: "legacy", num: 11 }]);
-  assert.deepEqual(await adapter.getNum("legacy"), { name: "legacy", num: 11 });
+  await adapter.setNumMulti([{ name: "missing", num: 11 }]);
+  assert.equal(await adapter.getNum("missing"), null);
+
+  await adapter.create("batch", 1);
+  await adapter.setNumMulti([{ name: "batch", num: 11 }]);
+  assert.deepEqual(await adapter.getNum("batch"), { name: "batch", num: 11 });
 }
 
 function createFakeMongoModel() {
@@ -82,7 +86,9 @@ function createFakeMongoModel() {
     async bulkWrite(operations) {
       for (const { updateOne } of operations) {
         const { name } = updateOne.filter;
-        records.set(name, updateOne.update.num);
+        if (records.has(name)) {
+          records.set(name, updateOne.update.$set.num);
+        }
       }
     },
   };
